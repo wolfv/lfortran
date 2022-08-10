@@ -23,6 +23,11 @@
 $RAISE_SUBPROC_ERROR = True
 trace on
 
+import platform
+$IS_MAC = platform.system() == "Darwin"
+$IS_WIN = platform.system() == "Windows"
+$IS_LINUX = platform.system() == "Linux"
+
 echo "CONDA_PREFIX=$CONDA_PREFIX"
 llvm-config --components
 
@@ -30,9 +35,9 @@ llvm-config --components
 bash ci/version.sh
 
 # Generate a Fortran AST from AST.asdl (C++)
-python grammar/asdl_cpp.py
+python src/libasr/asdl_cpp.py grammar/AST.asdl src/lfortran/ast.h
 # Generate a Fortran ASR from ASR.asdl (C++)
-python grammar/asdl_cpp.py src/libasr/ASR.asdl src/libasr/asr.h
+python src/libasr/asdl_cpp.py src/libasr/ASR.asdl src/libasr/asr.h
 # Generate a wasm_visitor.h from src/libasr/wasm_instructions.txt (C++)
 python src/libasr/wasm_instructions_visitor.py
 
@@ -52,8 +57,11 @@ cd test-bld
 # Note: we have to build in Release mode on Windows, because `llvmdev` is
 # compiled in Release mode and we get link failures if we mix and match build
 # modes:
-BUILD_TYPE = "Release"
-cmake -G $LFORTRAN_CMAKE_GENERATOR -DCMAKE_VERBOSE_MAKEFILE=ON -DWITH_LLVM=yes -DWITH_XEUS=yes -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX -DCMAKE_BUILD_TYPE=@(BUILD_TYPE) ..
+if $IS_LINUX:
+    BUILD_TYPE = "Debug"
+else:
+    BUILD_TYPE = "Release"
+cmake -G$LFORTRAN_CMAKE_GENERATOR -DCMAKE_VERBOSE_MAKEFILE=ON -DWITH_LLVM=yes -DWITH_XEUS=yes -DCMAKE_PREFIX_PATH=$CONDA_PREFIX -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX -DCMAKE_BUILD_TYPE=@(BUILD_TYPE) ..
 cmake --build . --target install
 ./src/lfortran/tests/test_lfortran
 ./src/bin/lfortran < ../src/bin/example_input.txt
@@ -75,7 +83,7 @@ cd ../../..
 
 cp lfortran-$lfortran_version/test-bld/src/bin/lfortran src/bin
 cp lfortran-$lfortran_version/test-bld/src/bin/cpptranslate src/bin
-if $WIN == "1":
+if $IS_WIN:
     cp lfortran-$lfortran_version/test-bld/src/runtime/legacy/lfortran_runtime* src/runtime/
 else:
     cp lfortran-$lfortran_version/test-bld/src/runtime/liblfortran_runtime* src/runtime/

@@ -40,7 +40,9 @@
 #include <libasr/asr_verify.h>
 #include <libasr/modfile.h>
 #include <libasr/config.h>
-#include <lfortran/fortran_kernel.h>
+#ifdef HAVE_LFORTRAN_XEUS
+    #include <lfortran/fortran_kernel.h>
+#endif
 #include <libasr/string_utils.h>
 #include <lfortran/utils.h>
 #include <lfortran/parser/parser.tab.hh>
@@ -106,7 +108,7 @@ void section(const std::string &s)
     std::cout << color(LFortran::style::bold) << color(LFortran::fg::blue) << s << color(LFortran::style::reset) << color(LFortran::fg::reset) << std::endl;
 }
 
-int emit_tokens(const std::string &input, std::vector<std::string>
+int emit_tokens2(const std::string &input, std::vector<std::string>
     &tok_strings, std::vector<int> &toks, std::vector<LFortran::YYSTYPE>
     &stypes)
 {
@@ -114,10 +116,8 @@ int emit_tokens(const std::string &input, std::vector<std::string>
     // elsewhere
     // Src -> Tokens
     Allocator al(64*1024*1024);
-    //std::vector<int> toks;
-    //std::vector<LFortran::YYSTYPE> stypes;
     LFortran::diag::Diagnostics diagnostics;
-    auto res = LFortran::tokens(al, input, diagnostics, &stypes);
+    auto res = LFortran::tokens(al, input, diagnostics, &stypes, nullptr, false);
     LFortran::LocationManager lm;
     lm.in_filename = "input";
     lm.init_simple(input);
@@ -129,7 +129,6 @@ int emit_tokens(const std::string &input, std::vector<std::string>
         LFORTRAN_ASSERT(diagnostics.has_error())
         return 1;
     }
-
     for (size_t i=0; i < toks.size(); i++) {
         tok_strings.push_back(LFortran::pickle(toks[i], stypes[i]));
         //std::cout << LFortran::pickle(toks[i], stypes[i]) << std::endl;
@@ -145,7 +144,7 @@ bool determine_completeness(std::string command)
     std::vector<int> toks;
     std::vector<LFortran::YYSTYPE> stypes;
     std::vector<std::string> token_strings;
-    int tok_ret = emit_tokens(command, token_strings, toks, stypes);
+    int tok_ret = emit_tokens2(command, token_strings, toks, stypes);
     // The token enumerators are in parser.tab.hh
     int do_blnc = 0;
     if (std::find(toks.begin(), toks.end(), KW_DO)!=toks.end()
@@ -386,18 +385,22 @@ int emit_tokens(const std::string &infile, bool line_numbers, const CompilerOpti
     std::vector<LFortran::YYSTYPE> stypes;
     std::vector<LFortran::Location> locations;
     LFortran::diag::Diagnostics diagnostics;
-    auto res = LFortran::tokens(al, input, diagnostics, &stypes, &locations);
     LFortran::LocationManager lm;
+    if (compiler_options.prescan || compiler_options.fixed_form) {
+        input = fix_continuation(input, lm, compiler_options.fixed_form);
+    }
+    auto res = LFortran::tokens(al, input, diagnostics, &stypes, &locations,
+        compiler_options.fixed_form);
     lm.in_filename = infile;
     lm.init_simple(input);
     std::cerr << diagnostics.render(input, lm, compiler_options);
     if (res.ok) {
         toks = res.result;
+        LFORTRAN_ASSERT(toks.size() == stypes.size())
     } else {
         LFORTRAN_ASSERT(diagnostics.has_error())
         return 1;
     }
-
     for (size_t i=0; i < toks.size(); i++) {
         std::cout << LFortran::pickle(toks[i], stypes[i]);
         if (line_numbers) {
@@ -725,12 +728,11 @@ int compile_to_object_file(const std::string &infile,
     // ASR -> LLVM
     LFortran::LLVMEvaluator e(compiler_options.target);
 
-    if (!LFortran::ASRUtils::main_program_present(*asr)) {
+    if (!compiler_options.generate_object_code
+            && !LFortran::ASRUtils::main_program_present(*asr)) {
         // Create an empty object file (things will be actually
         // compiled and linked when the main program is present):
-        {
-            e.create_empty_object_file(outfile);
-        }
+        e.create_empty_object_file(outfile);
         return 0;
     }
 
@@ -1175,8 +1177,8 @@ int link_executable(const std::vector<std::string> &infiles,
                 CC = "gcc";
             } else {
                 CC = "clang";
-            }  
-	    
+            }
+
             char *env_CC = std::getenv("LFORTRAN_CC");
             if (env_CC) CC = env_CC;
 
@@ -1329,14 +1331,6 @@ EMSCRIPTEN_KEEPALIVE char* emit_c_from_source(char *input) {
     return &out[0];
 }
 
-EMSCRIPTEN_KEEPALIVE char* emit_llvm_from_source(char *input) {
-    INITIALIZE_VARS;
-    LFortran::Result<std::string> r = fe.get_llvm(input, lm, diagnostics);
-    out = diagnostics.render(input, lm, compiler_options);
-    if (r.ok) { out += r.result; }
-    return &out[0];
-}
-
 // EMSCRIPTEN_KEEPALIVE char* emit_py_from_source(char *input) {
 //     INITIALIZE_VARS;
 //     LFortran::Result<std::string> r = fe.get_py(input, lm, diagnostics);
@@ -1366,6 +1360,7 @@ EMSCRIPTEN_KEEPALIVE char* emit_wasm_from_source(char *input) {
 } // namespace wasm
 
 #endif
+
 
 int main(int argc, char *argv[])
 {
@@ -1470,12 +1465,15 @@ int main(int argc, char *argv[])
         app.add_flag("--static", static_link, "Create a static executable");
         app.add_flag("--no-warnings", compiler_options.no_warnings, "Turn off all warnings");
         app.add_flag("--no-error-banner", compiler_options.no_error_banner, "Turn off error banner");
+        app.add_option("--error-format", compiler_options.error_format, "Control how errors are produced (human, short)")->capture_default_str();
         app.add_option("--backend", arg_backend, "Select a backend (llvm, cpp, x86, wasm)")->capture_default_str();
         app.add_flag("--openmp", compiler_options.openmp, "Enable openmp");
+        app.add_flag("--generate-object-code", compiler_options.generate_object_code, "Generate object code into .o files");
         app.add_flag("--fast", compiler_options.fast, "Best performance (disable strict standard compliance)");
         app.add_flag("--link-with-gcc", link_with_gcc, "Calls GCC for linking instead of clang");
         app.add_option("--target", compiler_options.target, "Generate code for the given target")->capture_default_str();
         app.add_flag("--print-targets", print_targets, "Print the registered targets");
+        app.add_flag("--implicit-typing", compiler_options.implicit_typing, "Allow implicit typing");
 
         if( compiler_options.fast ) {
             lfortran_pass_manager.use_optimization_passes();
@@ -1549,7 +1547,7 @@ int main(int argc, char *argv[])
         }
 
         if (kernel) {
-#ifdef HAVE_LFORTRAN_XEUS
+#if defined(HAVE_LFORTRAN_XEUS) && !HAVE_BUILD_TO_WASM
             return LFortran::run_kernel(arg_kernel_f);
 #else
             std::cerr << "The kernel subcommand requires LFortran to be compiled with XEUS support. Recompile with `WITH_XEUS=yes`." << std::endl;

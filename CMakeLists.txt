@@ -4,10 +4,11 @@ set(CMAKE_USER_MAKE_RULES_OVERRIDE ${CMAKE_SOURCE_DIR}/cmake/UserOverride.cmake)
 
 # We don't execute this if we have a tarball
 if (LFORTRAN_BUILD_ALL)
-  execute_process(COMMAND "build0.sh")
+    find_program(BASH_BIN bash)
+    execute_process(COMMAND "${BASH_BIN}" "build0.sh" WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
-file(STRINGS "version" LFORTRAN_VERSION)
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/version" LFORTRAN_VERSION)
 
 project(lfortran LANGUAGES C CXX)
 
@@ -23,14 +24,16 @@ if (NOT (CMAKE_BUILD_TYPE STREQUAL "Debug" OR
     message(FATAL_ERROR "CMAKE_BUILD_TYPE must be one of: Debug, Release (current value: '${CMAKE_BUILD_TYPE}')")
 endif ()
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    set(LFORTRAN_CXX_NO_RTTI_FLAG "-fno-rtti")
-elseif (CMAKE_CXX_COMPILER_ID MATCHES Clang)
-    set(LFORTRAN_CXX_NO_RTTI_FLAG "-fno-rtti")
-elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    set(LFORTRAN_CXX_NO_RTTI_FLAG "/GR-")
-endif ()
-
+# xeus does use `dynamic_cast` and thus needs rtti (otherwise it segfaults)
+if (NOT WITH_XEUS)
+    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        set(LFORTRAN_CXX_NO_RTTI_FLAG "-fno-rtti")
+    elseif (CMAKE_CXX_COMPILER_ID MATCHES Clang)
+        set(LFORTRAN_CXX_NO_RTTI_FLAG "-fno-rtti")
+    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+        set(LFORTRAN_CXX_NO_RTTI_FLAG "/GR-")
+    endif ()
+endif(NOT WITH_XEUS)
 
 # For CMAKE_INSTALL_BINDIR:
 include(GNUInstallDirs)
@@ -65,7 +68,6 @@ else()
     set(WITH_LFORTRAN_ASSERT_DEFAULT no)
 endif()
 
-
 # LFORTRAN_ASSERT
 set(WITH_LFORTRAN_ASSERT ${WITH_LFORTRAN_ASSERT_DEFAULT}
     CACHE BOOL "Enable LFORTRAN_ASSERT macro")
@@ -91,6 +93,7 @@ set(LFORTRAN_BUILD_TO_WASM no
     CACHE BOOL "Compile LFortran To WASM")
     
 if (LFORTRAN_BUILD_TO_WASM)
+    set(CMAKE_FIND_ROOT_PATH "${CMAKE_INSTALL_PREFIX};${CMAKE_FIND_ROOT_PATH}")
     set(HAVE_BUILD_TO_WASM yes)
     SET(WITH_WHEREAMI no)
     SET(WITH_ZLIB no)
@@ -185,7 +188,7 @@ endif()
 # XEUS (Fortran kernel)
 set(WITH_XEUS no CACHE BOOL "Build with XEUS support")
 if (WITH_XEUS)
-    find_package(xeus 0.24.1 REQUIRED)
+    find_package(xeus 2.4.1 REQUIRED)
     set(HAVE_LFORTRAN_XEUS yes)
 
     # Generate kernel.json with correct paths

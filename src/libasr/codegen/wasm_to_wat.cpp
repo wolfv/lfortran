@@ -66,7 +66,7 @@ void WASMDecoder::decode_imports_section(uint32_t offset) {
         for (uint32_t j = 0; j < mod_name_size; j++) {
             imports.p[i].mod_name[j] = read_b8(wasm_bytes, offset);
         }
-        
+
         uint32_t name_size = read_u32(wasm_bytes, offset);
         imports.p[i].name.resize(name_size); // do not pass al to this resize as it is std::string.resize()
         for (uint32_t j = 0; j < name_size; j++) {
@@ -94,7 +94,7 @@ void WASMDecoder::decode_imports_section(uint32_t offset) {
                 }
                 break;
             }
-            
+
             default: {
                 std::cout << "Only importing functions and memory are currently supported" << std::endl;
                 LFORTRAN_ASSERT(false);
@@ -255,7 +255,8 @@ std::string WASMDecoder::get_wat() {
             result += "(func (;" + std::to_string(i) + ";) (type " + std::to_string(imports[i].type_idx) + ")))";
         }
         else if(imports[i].kind == 0x02){
-            result += "(memory (;0;) " + std::to_string(imports[i].mem_page_size_limits.first) + "))";
+            result += "(memory (;0;) " + std::to_string(imports[i].mem_page_size_limits.first) + " "
+                                       + std::to_string(imports[i].mem_page_size_limits.second) + "))";
         }
     }
 
@@ -293,7 +294,7 @@ std::string WASMDecoder::get_wat() {
     }
 
     for(uint32_t i = 0; i < data_segments.size(); i++){
-        result += indent + "(data (;" + std::to_string(i) + ";) (" + data_segments[i].insts + ") \"" + data_segments[i].text + "\")"; 
+        result += indent + "(data (;" + std::to_string(i) + ";) (" + data_segments[i].insts + ") \"" + data_segments[i].text + "\")";
     }
 
     result += "\n)\n";

@@ -186,7 +186,7 @@ Result<AST::TranslationUnit_t*> FortranEvaluator::get_ast2(
         tmp = fix_continuation(*code, lm, compiler_options.fixed_form);
         code = &tmp;
     }
-    Result<AST::TranslationUnit_t*> res = parse(al, *code, diagnostics);
+    Result<AST::TranslationUnit_t*> res = parse(al, *code, diagnostics, compiler_options.fixed_form);
     if (res.ok) {
         return res.result;
     } else {
@@ -244,7 +244,7 @@ Result<ASR::TranslationUnit_t*> FortranEvaluator::get_asr3(
         symbol_table->mark_all_variables_external(al);
     }
     auto res = ast_to_asr(al, ast, diagnostics, symbol_table,
-        compiler_options.symtab_only);
+        compiler_options.symtab_only, compiler_options);
     if (res.ok) {
         asr = res.result;
     } else {
